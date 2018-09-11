@@ -1,0 +1,17 @@
+# conda env create -f environment.yml
+name: myenv
+dependencies:
+  python=3.6.3
+  - cython
+  - math
+  - matplotlib
+  - numpy
+  - opencv
+  - openslide-python
+  - pandas
+  - pymongo
+  - scikit-image
+  - scipy
+  - shapely
+  - pip:
+    - "--editable=git+https://github.com/jrosebr1/imutils@master"
