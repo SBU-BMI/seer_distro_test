@@ -712,8 +712,8 @@ SLIDE_DIR = os.path.join(WORK_DIR, CASE_ID) + os.sep
 CSV_REL_PATHS = get_file_list(CASE_ID, 'config/csv_file_path.list')
 
 # Fetch data.
-# assure_path_exists(SLIDE_DIR)
-# copy_src_data(SLIDE_DIR)
+assure_path_exists(SLIDE_DIR)
+copy_src_data(SLIDE_DIR)
 
 # Find what the pathologist circled as tumor.
 tumor_mark_list = get_tumor_markup(USER_NAME)
