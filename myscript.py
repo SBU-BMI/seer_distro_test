@@ -68,8 +68,8 @@ def copy_src_data(dest):
     :return:
     """
     # Get list of csv files containing features for this case_id
-    for csv_dir1 in CSV_REL_PATHS:
-        source_dir = os.path.join(CSV_FILE_PATH, csv_dir1)
+    for csv_dir1 in DATA_FILE_SUBFOLDERS:
+        source_dir = os.path.join(DATA_FILE_FOLDER, csv_dir1)
         # copy all *.json and *features.csv files
         m_args = list(["rsync", "-ar", "--include", "*features.csv", "--include", "*.json"])
         # m_args = list(["rsync", "-avz", "--include", "*features.csv", "--include", "*.json"])
@@ -82,7 +82,7 @@ def copy_src_data(dest):
     my_file = Path(os.path.join(dest, (CASE_ID + '.svs')))
     if not my_file.is_file():
         svs_list = get_file_list(CASE_ID, 'config/image_path.list')
-        svs_path = os.path.join(SVS_IMAGE_PATH, svs_list[0])
+        svs_path = os.path.join(SVS_IMAGE_FOLDER, svs_list[0])
         print("executing scp", svs_path, dest)
         subprocess.check_call(['scp', svs_path, dest])
 
@@ -96,7 +96,7 @@ def get_tumor_markup(user_name):
     tumor_markup_list = []
     execution_id = (user_name + "_Tumor_Region")
     try:
-        client = mongodb_connect('mongodb://' + args["db_host"] + ':27017')
+        client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
         client.server_info()  # force connection, trigger error to be caught
         db = client.quip
         coll = db.objects
@@ -265,11 +265,13 @@ def get_poly_within(jfiles, tumor_list):
     # print('tumor_list len: ', len(tumor_list))
     temp = {}
     path_poly = {}
-    rtn_jfiles = []
+    # rtn_jfiles = []
+    rtn_obj = {}
     # start_time = time.time()
-    pos = len('-algmeta.json')
 
     # Collect data
+    z = set()
+    count = 0
     for jfile in jfiles:
         with open(jfile, 'r') as f:
             # Read JSON data into the json_dict variable
@@ -281,90 +283,114 @@ def get_poly_within(jfiles, tumor_list):
             tile_width = json_dict['tile_width']
             tile_minx = json_dict['tile_minx']
             tile_miny = json_dict['tile_miny']
-            inc_x = tile_minx + tile_width
-            inc_y = tile_miny + tile_height
-            # Create polygon for comparison
-            point1 = Point(float(tile_minx) / float(imw), float(tile_miny) / float(imh))
-            point2 = Point(float(inc_x) / float(imw), float(tile_miny) / float(imh))
-            point3 = Point(float(inc_x) / float(imw), float(inc_y) / float(imh))
-            point4 = Point(float(tile_minx) / float(imw), float(inc_y) / float(imh))
-            point5 = Point(float(tile_minx) / float(imw), float(tile_miny) / float(imh))
-            m = MultiPoint([point1, point2, point3, point4, point5])
-            polygon = Polygon(m)
-            # Map data file location (prefix) to bbox polygon
-            path_poly[f.name[:-pos]] = polygon
+            fp = json_dict['out_file_prefix']
+
+            item = 'x' + str(tile_minx) + '_' + 'y' + str(tile_miny)
+            if item not in z:  # If the object is not in the list yet...
+                inc_x = tile_minx + tile_width
+                inc_y = tile_miny + tile_height
+                # Create polygon for comparison
+                point1 = Point(float(tile_minx) / float(imw), float(tile_miny) / float(imh))
+                point2 = Point(float(inc_x) / float(imw), float(tile_miny) / float(imh))
+                point3 = Point(float(inc_x) / float(imw), float(inc_y) / float(imh))
+                point4 = Point(float(tile_minx) / float(imw), float(inc_y) / float(imh))
+                point5 = Point(float(tile_minx) / float(imw), float(tile_miny) / float(imh))
+                m = MultiPoint([point1, point2, point3, point4, point5])
+                polygon = Polygon(m)
+                # Map data file location (prefix) to bbox polygon
+                # path_poly[f.name[:-pos]] = polygon
+                path_poly[item] = {'poly': polygon, 'image_width': imw, 'image_height': imh, 'tile_width': tile_width,
+                                   'tile_height': tile_height, 'tile_minx': tile_minx, 'tile_miny': tile_miny,
+                                   'out_file_prefix': fp}
+            else:
+                count += 1
+
+            z.add(item)
+
         f.close()
         temp.update(path_poly)
 
-    count = 0
+    print('dupes', count)
+    print('len', len(temp))
+
     for tumor_roi in tumor_list:
         for key, val in temp.items():
             gotone = False
-            if val.within(tumor_roi):
+            p = val['poly']
+            if p.within(tumor_roi):
                 gotone = True
-                count += 1
-            elif val.intersects(tumor_roi):
+            elif p.intersects(tumor_roi):
                 gotone = True
-                count += 1
-            elif tumor_roi.within(val):
+            elif tumor_roi.within(p):
                 gotone = True
-                count += 1
-            elif tumor_roi.intersects(val):
+            elif tumor_roi.intersects(p):
                 gotone = True
-                count += 1
             if gotone:
-                rtn_jfiles.append(key)
-                # rtn_obj.update({key: val})
+                # print('val', val)
+                rtn_obj.update({key: val})
 
     # elapsed_time = time.time() - start_time
     # print('Runtime get_poly_within: ')
     # print(time.strftime("%H:%M:%S", time.gmtime(elapsed_time)))
 
-    return rtn_jfiles
+    # return rtn_jfiles
+    return rtn_obj
 
 
-def get_csv_data(files):
+def get_csv_data(jfile_objs, CSV_FILES):
     """
     Get data
-    :param files:
+    :param jfile_objs:
+    :param CSV_FILES
     :return:
     """
     start_time = time.time()
     obj_map = {}
+    obj_map1 = {}
     rtn_dict = {}
 
-    for ff in files:
-        jname = ff + '-algmeta.json'  # '-features.csv'
-        with open(jname, 'r') as f:
-            # Read JSON data into the json_dict variable
-            json_dict = json.load(f)
-            str = json_dict['out_file_prefix']
-            imw = json_dict['image_width']
-            imh = json_dict['image_height']
-            tile_height = json_dict['tile_height']
-            tile_width = json_dict['tile_width']
-            tile_minx = json_dict['tile_minx']
-            tile_miny = json_dict['tile_miny']
+    for k, v in jfile_objs.items():
+        filelist = []
+        for ff in CSV_FILES:
+            if k in ff:
+                filelist.append(ff)
 
-            cname = ff + '-features.csv'
+        data_obj = {'filelist': filelist, "image_width": v['image_width'], "image_height": v['image_height'],
+                    "tile_height": v['tile_height'], "tile_width": v['tile_width'], "tile_minx": v['tile_minx'],
+                    "tile_miny": v['tile_miny']}
+        obj_map.update({k: data_obj})
 
-            df = pandas.read_csv(cname)
+    print('obj_map', len(obj_map))
+
+    for k, v in obj_map.items():
+        frames = []
+        for ff in v['filelist']:
+            df = pandas.read_csv(ff)
             # print('df.shape[0]: ', df.shape[0])
             if df.empty:
+                # print('empty!')
+                # print(len(v['filelist']))
+                # print(k)
+                # print(ff)
                 continue
             else:
                 # new = old[['A', 'C', 'D']].copy()
-                newdf = df[
+                df1 = df[
                     ['AreaInPixels', 'Perimeter', 'Flatness', 'Circularity', 'r_GradientMean', 'b_GradientMean',
                      'b_cytoIntensityMean', 'r_cytoIntensityMean', 'r_IntensityMean', 'r_cytoGradientMean',
                      'Polygon']].copy()
-                data_obj = {"df": newdf, "image_width": imw, "image_height": imh,
-                            "tile_height": tile_height,
-                            "tile_width": tile_width, "tile_minx": tile_minx, "tile_miny": tile_miny}
-                obj_map[ff] = data_obj
+                frames.append(df1)
+
+        if frames:
+            result = pandas.concat(frames)
+            data_obj1 = {'df': result, "image_width": v['image_width'], "image_height": v['image_height'],
+                         "tile_height": v['tile_height'], "tile_width": v['tile_width'], "tile_minx": v['tile_minx'],
+                         "tile_miny": v['tile_miny']}
+
+            obj_map1[ff] = data_obj1
+
         # Add to return variable
-        rtn_dict.update(obj_map)
-        f.close()
+        rtn_dict.update(obj_map1)
 
     elapsed_time = time.time() - start_time
     print('Runtime get_csv_data: ')
@@ -410,7 +436,7 @@ def update_db(slide, df, val, name):
     print('histological_data', json.dumps(histological_data, indent=4, sort_keys=True))
 
     try:
-        # client = mongodb_connect('mongodb://' + args["db_host"] + ':27017')
+        # client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
         # client.server_info()  # force connection, trigger error to be caught
         # db = client.quip_comp
         # collection_saved = db[name + '_features_td']  # name
@@ -469,9 +495,8 @@ def calculate(data, is_patch):
         for key, val in data.items():
             df = val['df']
             # print('df.shape', df.shape[0])
-
             update_db(slide, df, val, 'patch')
-            exit(0)  # TODO: TEST ONE.
+            exit(0)  # TODO: TESTING ONE.
 
     if not is_patch:
         print('Calculating patient-level features...')
@@ -491,7 +516,7 @@ def calculate(data, is_patch):
 def test_db():
     try:
         name = 'test'
-        client = mongodb_connect('mongodb://' + args["db_host"] + ':27017')
+        client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
         client.server_info()  # force connection, trigger error to be caught
         db = client.quip_comp
         collection_saved = db[name + '_features_td']  # name
@@ -686,8 +711,8 @@ def doTiles(data):
 
 # constant variables
 WORK_DIR = "/data1/tdiprima/dataset"
-CSV_FILE_PATH = "nfs004:/data/shared/bwang/composite_dataset"
-SVS_IMAGE_PATH = "nfs001:/data/shared/tcga_analysis/seer_data/images"
+DATA_FILE_FOLDER = "nfs004:/data/shared/bwang/composite_dataset"
+SVS_IMAGE_FOLDER = "nfs001:/data/shared/tcga_analysis/seer_data/images"
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
@@ -707,13 +732,15 @@ if not len(sys.argv) > 1:
 CASE_ID = args["slide_name"]
 USER_NAME = args["user_name"]
 TILE_SIZE = args["tile_size"]
+DB_HOST = args["db_host"]
 
 SLIDE_DIR = os.path.join(WORK_DIR, CASE_ID) + os.sep
-CSV_REL_PATHS = get_file_list(CASE_ID, 'config/csv_file_path.list')
+DATA_FILE_SUBFOLDERS = get_file_list(CASE_ID, 'config/data_file_path.list')
+# print('DATA_FILE_SUBFOLDERS', DATA_FILE_SUBFOLDERS)
 
 # Fetch data.
-assure_path_exists(SLIDE_DIR)
-copy_src_data(SLIDE_DIR)
+# assure_path_exists(SLIDE_DIR)
+# copy_src_data(SLIDE_DIR)
 
 # Find what the pathologist circled as tumor.
 tumor_mark_list = get_tumor_markup(USER_NAME)
@@ -727,12 +754,12 @@ tumor_poly_list = markup_to_polygons(tumor_mark_list)
 JSON_FILES, CSV_FILES = get_data_files()
 
 # Identify only the files within the tumor regions
-jfile_list = get_poly_within(JSON_FILES, tumor_poly_list)
-# print('jfile_list len: ', len(jfile_list))
+jfile_objs = get_poly_within(JSON_FILES, tumor_poly_list)
+print('get_poly_within len: ', len(jfile_objs))
 
 # Get data
-csv_data = get_csv_data(jfile_list)
-# print('csv_data len: ', len(csv_data))  # NOTE: s/b less b/c we ignore empty data files.
+csv_data = get_csv_data(jfile_objs, CSV_FILES)
+print('csv_data len: ', len(csv_data))
 
 # Calculate
 calculate(csv_data, True)
