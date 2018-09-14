@@ -383,9 +383,9 @@ def aggregate_data(jfile_objs, CSV_FILES):
             else:
                 # new = old[['A', 'C', 'D']].copy()
                 df1 = df[
-                    ['AreaInPixels', 'Perimeter', 'Flatness', 'Circularity', 'r_GradientMean', 'b_GradientMean',
+                    ['Perimeter', 'Flatness', 'Circularity', 'r_GradientMean', 'b_GradientMean',
                      'b_cytoIntensityMean', 'r_cytoIntensityMean', 'r_IntensityMean', 'r_cytoGradientMean',
-                     'Polygon']].copy()
+                     'Elongation', 'Polygon']].copy()
                 frames.append(df1)
 
         if frames:
@@ -406,69 +406,133 @@ def aggregate_data(jfile_objs, CSV_FILES):
     return rtn_dict
 
 
+def get_mongo_doc(slide, patch_data):
+    """
+    Return a default mongo doc
+    :param slide:
+    :param patch_data:
+    :return:
+    """
+    mpp_x = 0.0
+    mpp_y = 0.0
+    try:
+        mpp_x = slide.properties[openslide.PROPERTY_NAME_MPP_X]
+        mpp_y = slide.properties[openslide.PROPERTY_NAME_MPP_Y]
+        slide_mpp = (float(mpp_x) + float(mpp_y)) / 2
+        print('mpp_x', mpp_x)
+        print('mpp_y', mpp_y)
+        print('slide_mpp', slide_mpp)
+    except (KeyError, ValueError):
+        print('Slide property error')
+        exit(1)
+
+    image_width, image_height = slide.dimensions
+
+    # Ratio of nuclear material
+    percent_nuclear_material = float((patch_data['patch_polygon_area'] / (PATCH_SIZE * PATCH_SIZE)) * 100)
+    print("Ratio of nuclear material: ", percent_nuclear_material)
+
+    patch_index = patch_data['patch_num']
+
+    mydoc = {
+        "case_id": CASE_ID,
+        "image_width": image_width,
+        "image_height": image_height,
+        "mpp_x": mpp_x,
+        "mpp_y": mpp_y,
+        "user": USER_NAME,
+        "tumorFlag": "tumor",
+        "patch_index": patch_index,
+        "patch_min_x_pixel": patch_data['patch_minx'],
+        "patch_min_y_pixel": patch_data['patch_miny'],
+        "patch_size": PATCH_SIZE,
+        "patch_polygon_area": patch_data['patch_polygon_area'],
+        "percent_nuclear_material": percent_nuclear_material,
+        # "patch_area_selected_percentage": 0.0,
+        "grayscale_patch_mean": 0.0,
+        "grayscale_patch_std": 0.0,
+        "Hematoxylin_patch_mean": 0.0,
+        "Hematoxylin_patch_std": 0.0,
+        "grayscale_segment_mean": "n/a",
+        "grayscale_segment_std": "n/a",
+        "Hematoxylin_segment_mean": "n/a",
+        "Hematoxylin_segment_std": "n/a",
+        "Flatness_segment_mean": "n/a",
+        "Flatness_segment_std": "n/a",
+        "Perimeter_segment_mean": "n/a",
+        "Perimeter_segment_std": "n/a",
+        "Circularity_segment_mean": "n/a",
+        "Circularity_segment_std": "n/a",
+        "r_GradientMean_segment_mean": "n/a",
+        "r_GradientMean_segment_std": "n/a",
+        "b_GradientMean_segment_mean": "n/a",
+        "b_GradientMean_segment_std": "n/a",
+        "r_cytoIntensityMean_segment_mean": "n/a",
+        "r_cytoIntensityMean_segment_std": "n/a",
+        "b_cytoIntensityMean_segment_mean": "n/a",
+        "b_cytoIntensityMean_segment_std": "n/a",
+        "Elongation_segment_mean": "n/a",
+        "Elongation_segment_std": "n/a",
+        "tile_minx": patch_data['tile_minx'],
+        "tile_miny": patch_data['tile_miny']
+        # , "datetime": datetime.now()
+    }
+
+    return mydoc
+
+
 def update_db(slide, patch_data):
     """
-    Write data.
+    Write data, per patch.
     :param slide:
     :param patch_data:
     :return:
     """
 
-    patch_index = patch_data['patch_num']
     df = patch_data['df']
 
+    mydoc = get_mongo_doc(slide, patch_data)
+
+    # read_region returns an RGBA Image (PIL)
+    patch = slide.read_region((patch_data['patch_minx'], patch_data['patch_miny']), 0, (PATCH_SIZE, PATCH_SIZE))
+
+    # Histology
+    mydoc = patch_operations(patch, mydoc)
+
     if df.empty:
-        print('empty')
+        mycol = {}
+        # x = mycol.insert_one(mydoc)
     else:
-        # Ratio of nuclear material
-        nucleus_area = df['AreaInPixels'].sum()
-        # TODO: FIX
-        percent_nuclear_material = compute_rnm(PATCH_SIZE, PATCH_SIZE, nucleus_area)
-        print("Ratio of nuclear material: ", percent_nuclear_material)
+        mydoc['Flatness_segment_mean'] = df['Flatness'].mean()
+        mydoc['Flatness_segment_std'] = df['Flatness'].std()
+        mydoc['Perimeter_segment_mean'] = df['Perimeter'].mean()
+        mydoc['Perimeter_segment_std'] = df['Perimeter'].std()
+        mydoc['Circularity_segment_mean'] = df['Circularity'].mean()
+        mydoc['Circularity_segment_std'] = df['Circularity'].std()
+        mydoc['r_GradientMean_segment_mean'] = df['r_GradientMean'].mean()
+        mydoc['r_GradientMean_segment_std'] = df['r_GradientMean'].std()
+        mydoc['b_GradientMean_segment_mean'] = df['b_GradientMean'].mean()
+        mydoc['b_GradientMean_segment_std'] = df['b_GradientMean'].std()
+        mydoc['r_cytoIntensityMean_segment_mean'] = df['r_cytoIntensityMean'].mean()
+        mydoc['r_cytoIntensityMean_segment_std'] = df['r_cytoIntensityMean'].std()
+        mydoc['b_cytoIntensityMean_segment_mean'] = df['b_cytoIntensityMean'].mean()
+        mydoc['b_cytoIntensityMean_segment_std'] = df['b_cytoIntensityMean'].std()
+        mydoc['Elongation_segment_mean'] = df['Elongation'].mean()
+        mydoc['Elongation_segment_std'] = df['Elongation'].std()
 
-        # Histology
-        histological_data = histology(slide, patch_data['patch_minx'], patch_data['patch_miny'], PATCH_SIZE, PATCH_SIZE)
-        print('histological_data', json.dumps(histological_data, indent=4, sort_keys=True))
+    print('mydoc', json.dumps(mydoc, indent=4, sort_keys=True))
 
-        try:
-            # client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
-            # client.server_info()  # force connection, trigger error to be caught
-            # db = client.quip_comp
-            # collection_saved = db[name + '_features_td']  # name
-            patch_feature_data = {}  # TODO: Remove when enabling db write.
-            # patch_feature_data = collection_saved.OrderedDict()
-            patch_feature_data['case_id'] = CASE_ID
-            patch_feature_data['image_width'] = patch_data['image_width']
-            patch_feature_data['image_height'] = patch_data['image_height']
-            patch_feature_data['user'] = USER_NAME
-            patch_feature_data['tile_minx'] = patch_data['tile_minx']
-            patch_feature_data['tile_miny'] = patch_data['tile_miny']
-            patch_feature_data['patch_index'] = patch_index
-            patch_feature_data['patch_minx'] = patch_data['patch_minx']
-            patch_feature_data['patch_miny'] = patch_data['patch_miny']
-            patch_feature_data['patch_width'] = PATCH_SIZE
-            patch_feature_data['patch_height'] = PATCH_SIZE
-            patch_feature_data['Flatness_segment_mean'] = df['Flatness'].mean()
-            patch_feature_data['Flatness_segment_std'] = df['Flatness'].std()
-            patch_feature_data['Perimeter_segment_mean'] = df['Perimeter'].mean()
-            patch_feature_data['Perimeter_segment_std'] = df['Perimeter'].std()
-            patch_feature_data['Circularity_segment_mean'] = df['Circularity'].mean()
-            patch_feature_data['Circularity_segment_std'] = df['Circularity'].std()
-            patch_feature_data['r_GradientMean_segment_mean'] = df['r_GradientMean'].mean()
-            patch_feature_data['r_GradientMean_segment_std'] = df['r_GradientMean'].std()
-            patch_feature_data['b_GradientMean_segment_mean'] = df['b_GradientMean'].mean()
-            patch_feature_data['b_GradientMean_segment_std'] = df['b_GradientMean'].std()
-            patch_feature_data['r_cytoIntensityMean_segment_mean'] = df['r_cytoIntensityMean'].mean()
-            patch_feature_data['r_cytoIntensityMean_segment_std'] = df['r_cytoIntensityMean'].std()
-            patch_feature_data['b_cytoIntensityMean_segment_mean'] = df['b_cytoIntensityMean'].mean()
-            patch_feature_data['b_cytoIntensityMean_segment_std'] = df['b_cytoIntensityMean'].std()
-            print('patch_feature_data', json.dumps(patch_feature_data, indent=4, sort_keys=True))
-            # patch_feature_data['datetime'] = datetime.now()
-            # collection_saved.insert_one(patch_feature_data)
-
-        except Exception as e:
-            print('Error in update_db: ', e)
-            exit(1)
+    # try:
+    #     client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
+    #     client.server_info()  # force connection, trigger error to be caught
+    #     db = client.quip_comp
+    #     mycol = db[name + '_features_td']  # name
+    #     # patch_feature_data = mycol.OrderedDict()
+    #     mydoc.datetime = datetime.now()
+    #     mycol.insert_one(mydoc)
+    # except Exception as e:
+    #     print('Error in update_db: ', e)
+    #     exit(1)
 
 
 def calculate(tile_data):
@@ -482,6 +546,7 @@ def calculate(tile_data):
     print('Reading slide...')
     start_time = time.time()
     slide = openslide.OpenSlide(str(p))
+
     elapsed_time = time.time() - start_time
     print('Time it takes to read slide: ', elapsed_time)
     start_time = time.time()  # reset
@@ -532,10 +597,38 @@ def rgb_to_stain(rgb_img_matrix, sizex, sizey):
     return hematoxylin_img_array
 
 
-def tile_operations(tile, type, name_prefix, w, h):
+def patch_operations(patch, mydoc):
+    # Convert to grayscale
+    img = patch.convert('L')
+    # img to array
+    img_array = np.array(img)
+    # Intensity for all pixels, divided by num pixels
+    mydoc['grayscale_patch_mean'] = np.mean(img_array)
+    mydoc['grayscale_patch_std'] = np.std(img_array)
+    # Intensity for all pixels inside segmented objects...
+    # mydoc.grayscale_segment_mean = "n/a"
+    # mydoc.grayscale_segment_std = "n/a"
+
+    # Convert to RGB
+    img = patch.convert('RGB')
+    img_array = np.array(img)
+    hed_title_img = separate_stains(img_array, hed_from_rgb)
+    max1 = np.max(hed_title_img)
+    min1 = np.min(hed_title_img)
+    Hematoxylin_img_matrix = hed_title_img[:, :, 0]
+    Hematoxylin_img_matrix = ((Hematoxylin_img_matrix - min1) * 255 / (max1 - min1)).astype(np.uint8)
+    mydoc['Hematoxylin_patch_mean'] = np.mean(Hematoxylin_img_matrix)
+    mydoc['Hematoxylin_patch_std'] = np.std(Hematoxylin_img_matrix)
+    # mydoc.Hematoxylin_segment_mean = "n/a"
+    # mydoc.Hematoxylin_segment_std = "n/a"
+
+    return mydoc
+
+
+def tile_operations(patch, type, name_prefix, w, h):
     """
 
-    :param tile:
+    :param patch:
     :param type:
     :param name_prefix:
     :param w:
@@ -544,7 +637,7 @@ def tile_operations(tile, type, name_prefix, w, h):
     """
     data = {}
 
-    img = tile.convert(type)
+    img = patch.convert(type)
 
     # img to array
     img_array = np.array(img)
@@ -554,12 +647,12 @@ def tile_operations(tile, type, name_prefix, w, h):
         img_array = rgb_to_stain(img_array, w, h)
 
     # average of the array elements
-    tile_mean = np.mean(img_array)
-    data[name_prefix + '_patch_mean'] = tile_mean
+    patch_mean = np.mean(img_array)
+    data[name_prefix + '_patch_mean'] = patch_mean
 
     # standard deviation of the array elements
-    tile_std = np.std(img_array)
-    data[name_prefix + '_patch_std'] = tile_std
+    patch_std = np.std(img_array)
+    data[name_prefix + '_patch_std'] = patch_std
 
     percentiles = [10, 25, 50, 75, 90]
     for i in range(len(percentiles)):
@@ -624,20 +717,6 @@ def detect_bright_spots(gray):
     # Do something.
 
 
-def compute_rnm(width, height, total_polygon_area):
-    """
-    ratio of nuclear material
-    :param width:
-    :param height:
-    :param total_polygon_area:
-    :return:
-    """
-    area = width * height  # in pixels
-    rnm = float(total_polygon_area / area)
-    # percent_nuclear_material = float((nucleus_area / patch_polygon_area) * 100)
-    return rnm
-
-
 def do_tiles(data, slide):
     """
     Divide tile into patches
@@ -674,7 +753,7 @@ def do_tiles(data, slide):
             bbox = Polygon([(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy), (minx, miny)])
             row_list = []
             df2 = pandas.DataFrame()
-            patch_area = 0.0
+            patch_polygon_area = 0.0
             # Figure out which polygons (data rows) belong to which patch
             for index, row in df.iterrows():
                 xy = row['Polygon']
@@ -686,11 +765,11 @@ def do_tiles(data, slide):
                     row_list.append(row)
                     df2 = df2.append(row)
                     if polygon_shape.intersects(bbox):
-                        patch_area += polygon_shape.intersection(bbox).area
+                        patch_polygon_area += polygon_shape.intersection(bbox).area
                     else:
-                        patch_area += polygon_shape.area
+                        patch_polygon_area += polygon_shape.area
 
-            update_db(slide, {'df': df2, 'patch_area': patch_area, 'patch_num': patch_num,
+            update_db(slide, {'df': df2, 'patch_polygon_area': patch_polygon_area, 'patch_num': patch_num,
                               'patch_minx': minx, 'patch_miny': miny, 'tile_minx': data['tile_minx'],
                               'tile_miny': data['tile_miny'], 'image_width': data['image_width'],
                               'image_height': data['image_height']})
