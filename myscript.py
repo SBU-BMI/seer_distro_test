@@ -503,15 +503,16 @@ def update_db(slide, patch_data, db_name):
     # Histology
     mydoc = patch_operations(patch, mydoc)
 
+    mycol = DB[db_name + '_features_td']  # name
     # Connect to MongoDB
-    try:
-        client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
-        client.server_info()  # force connection, trigger error to be caught
-        db = client.quip_comp
-        mycol = db[db_name + '_features_td']  # name
-    except Exception as e:
-        print('Connection error: ', e)
-        exit(1)
+    # try:
+    #     client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
+    #     client.server_info()  # force connection, trigger error to be caught
+    #     db = client.quip_comp
+    #     mycol = db[db_name + '_features_td']  # name
+    # except Exception as e:
+    #     print('Connection error: ', e)
+    #     exit(1)
 
     try:
         if not df.empty:
@@ -763,6 +764,7 @@ def do_tiles(data, slide):
             for index, row in df.iterrows():
                 xy = row['Polygon']
                 polygon_shape = string_to_polygon(xy, data['image_width'], data['image_height'], False)
+                polygon_shape = polygon_shape.buffer(0.0)  # Using a zero-width buffer cleans up many topology problems
                 # print('polygon_shape', polygon_shape)
 
                 # Accumulate information
@@ -773,7 +775,6 @@ def do_tiles(data, slide):
                             patch_polygon_area += polygon_shape.intersection(bbox).area
                         except Exception as err:
                             # except errors.TopologicalError as toperr:
-                            # TODO: Heads up, we both have this issue. Should handle same way.
                             print('Invalid geometry', err)
                     else:
                         patch_polygon_area += polygon_shape.area
@@ -840,7 +841,20 @@ print('get_poly_within len: ', len(jfile_objs))
 csv_data = aggregate_data(jfile_objs, CSV_FILES)
 print('csv_data len: ', len(csv_data))
 
+# Connect to MongoDB
+db_name = 'test'
+client = {}
+try:
+    client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
+    client.server_info()  # force connection, trigger error to be caught
+    DB = client.quip_comp
+except Exception as e:
+    print('Connection error: ', e)
+    exit(1)
+
 # Calculate
 calculate(csv_data)
+
+client.close()
 
 exit(0)
