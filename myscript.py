@@ -503,43 +503,29 @@ def update_db(slide, patch_data, db_name):
     # Histology
     mydoc = patch_operations(patch, mydoc)
 
-    mycol = DB[db_name + '_features_td']  # name
-    # Connect to MongoDB
-    # try:
-    #     client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
-    #     client.server_info()  # force connection, trigger error to be caught
-    #     db = client.quip_comp
-    #     mycol = db[db_name + '_features_td']  # name
-    # except Exception as e:
-    #     print('Connection error: ', e)
-    #     exit(1)
+    if not df.empty:
+        mydoc['flatness_segment_mean'] = df['Flatness'].mean()
+        mydoc['flatness_segment_std'] = df['Flatness'].std()
+        mydoc['perimeter_segment_mean'] = df['Perimeter'].mean()
+        mydoc['perimeter_segment_std'] = df['Perimeter'].std()
+        mydoc['circularity_segment_mean'] = df['Circularity'].mean()
+        mydoc['circularity_segment_std'] = df['Circularity'].std()
+        mydoc['r_GradientMean_segment_mean'] = df['r_GradientMean'].mean()
+        mydoc['r_GradientMean_segment_std'] = df['r_GradientMean'].std()
+        mydoc['b_GradientMean_segment_mean'] = df['b_GradientMean'].mean()
+        mydoc['b_GradientMean_segment_std'] = df['b_GradientMean'].std()
+        mydoc['r_cytoIntensityMean_segment_mean'] = df['r_cytoIntensityMean'].mean()
+        mydoc['r_cytoIntensityMean_segment_std'] = df['r_cytoIntensityMean'].std()
+        mydoc['b_cytoIntensityMean_segment_mean'] = df['b_cytoIntensityMean'].mean()
+        mydoc['b_cytoIntensityMean_segment_std'] = df['b_cytoIntensityMean'].std()
+        mydoc['elongation_segment_mean'] = df['Elongation'].mean()
+        mydoc['elongation_segment_std'] = df['Elongation'].std()
 
-    try:
-        if not df.empty:
-            mydoc['flatness_segment_mean'] = df['Flatness'].mean()
-            mydoc['flatness_segment_std'] = df['Flatness'].std()
-            mydoc['perimeter_segment_mean'] = df['Perimeter'].mean()
-            mydoc['perimeter_segment_std'] = df['Perimeter'].std()
-            mydoc['circularity_segment_mean'] = df['Circularity'].mean()
-            mydoc['circularity_segment_std'] = df['Circularity'].std()
-            mydoc['r_GradientMean_segment_mean'] = df['r_GradientMean'].mean()
-            mydoc['r_GradientMean_segment_std'] = df['r_GradientMean'].std()
-            mydoc['b_GradientMean_segment_mean'] = df['b_GradientMean'].mean()
-            mydoc['b_GradientMean_segment_std'] = df['b_GradientMean'].std()
-            mydoc['r_cytoIntensityMean_segment_mean'] = df['r_cytoIntensityMean'].mean()
-            mydoc['r_cytoIntensityMean_segment_std'] = df['r_cytoIntensityMean'].std()
-            mydoc['b_cytoIntensityMean_segment_mean'] = df['b_cytoIntensityMean'].mean()
-            mydoc['b_cytoIntensityMean_segment_std'] = df['b_cytoIntensityMean'].std()
-            mydoc['elongation_segment_mean'] = df['Elongation'].mean()
-            mydoc['elongation_segment_std'] = df['Elongation'].std()
-
-        # Insert record in either case
-        mycol.insert_one(mydoc)
-
-    except Exception as e:
-        print('Error: ', e)
-        exit(1)
-    # print('mydoc', json.dumps(mydoc, indent=4, sort_keys=True))
+    if MYCOL:
+        # Insert record
+        MYCOL.insert_one(mydoc)
+    else:
+        print('mydoc', json.dumps(mydoc, indent=4, sort_keys=True))
 
 
 def calculate(tile_data):
@@ -789,6 +775,39 @@ def do_tiles(data, slide):
     print(time.strftime("%H:%M:%S", time.gmtime(elapsed_time)))
 
 
+def write_to_database(db_name):
+    """
+    Compute and write results to MongoDB
+    NOTE: Specs changed and we are not writing to database.
+    :param db_name:
+    :return:
+    """
+    # Connect to MongoDB
+    client = {}
+    try:
+        client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
+        client.server_info()  # force connection, trigger error to be caught
+        db = client.quip_comp
+        MYCOL = db[db_name + '_features_td']  # name
+    except Exception as e:
+        print('Connection error: ', e)
+        exit(1)
+
+    # Calculate
+    calculate(csv_data)
+
+    client.close()
+    print('Done.')
+
+
+def write_to_file():
+    """
+    Write to csv files
+    :return:
+    """
+    calculate(csv_data)
+
+
 # constant variables
 WORK_DIR = "/data1/tdiprima/dataset"
 DATA_FILE_FOLDER = "nfs004:/data/shared/bwang/composite_dataset"
@@ -813,6 +832,7 @@ CASE_ID = args["slide_name"]
 USER_NAME = args["user_name"]
 PATCH_SIZE = args["patch_size"]
 DB_HOST = args["db_host"]
+MYCOL = {}
 
 SLIDE_DIR = os.path.join(WORK_DIR, CASE_ID) + os.sep
 DATA_FILE_SUBFOLDERS = get_file_list(CASE_ID, 'config/data_file_path.list')
@@ -841,20 +861,7 @@ print('get_poly_within len: ', len(jfile_objs))
 csv_data = aggregate_data(jfile_objs, CSV_FILES)
 print('csv_data len: ', len(csv_data))
 
-# Connect to MongoDB
-db_name = 'test'
-client = {}
-try:
-    client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
-    client.server_info()  # force connection, trigger error to be caught
-    DB = client.quip_comp
-except Exception as e:
-    print('Connection error: ', e)
-    exit(1)
-
-# Calculate
-calculate(csv_data)
-
-client.close()
+# write_to_database(test)
+write_to_file()
 
 exit(0)
