@@ -31,7 +31,7 @@ def assure_path_exists(path):
 
 
 def mongodb_connect(client_uri):
-    """
+    """ 
     Connection routine
     :param client_uri:
     :return:
