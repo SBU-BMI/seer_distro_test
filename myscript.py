@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import openslide
 import pandas
-from planar import BoundingBox, Vec2
+# from planar import BoundingBox, Vec2
 from pymongo import MongoClient, errors
 from shapely.geometry import Polygon, Point, MultiPoint
 from skimage.color import separate_stains, hed_from_rgb
@@ -144,39 +144,13 @@ def markup_to_polygons(markup_list):
             # convert the point coordinates to Points
             for m_point in coordinates:
                 m_point = Point(m_point[0], m_point[1])
+                # print('m_point', m_point)  # normalized
                 points_list.append(m_point)
             # create a Polygon
             m = MultiPoint(points_list)
             m_polygon = Polygon(m)
             # append to return-list
             m_poly_list.append(m_polygon)
-    except Exception as ex:
-        print('Error in convert_to_polygons', ex)
-        exit(1)
-
-    # Return list of polygons
-    return m_poly_list
-
-
-def coordinates_to_polygons(coordinates_list):
-    """
-    Clean up and convert to something we can use.
-    :param coordinates_list:
-    :return:
-    """
-    m_poly_list = []
-    points_list = []
-    try:
-        # roll through our list of [x,y]
-        for m_point in coordinates_list:
-            # convert the point coordinates to Points
-            m_point = Point(m_point[0], m_point[1])
-            points_list.append(m_point)
-        # create a Polygon
-        m = MultiPoint(points_list)
-        m_polygon = Polygon(m)
-        # append to return-list
-        m_poly_list.append(m_polygon)
     except Exception as ex:
         print('Error in convert_to_polygons', ex)
         exit(1)
@@ -297,6 +271,7 @@ def get_poly_within(jfiles, tumor_list):
                 inc_y = tile_miny + tile_height
                 # Create polygon for comparison
                 point1 = Point(float(tile_minx) / float(imw), float(tile_miny) / float(imh))
+                # print('point1', point1)  # normalized
                 point2 = Point(float(inc_x) / float(imw), float(tile_miny) / float(imh))
                 point3 = Point(float(inc_x) / float(imw), float(inc_y) / float(imh))
                 point4 = Point(float(tile_minx) / float(imw), float(inc_y) / float(imh))
@@ -413,26 +388,10 @@ def get_mongo_doc(slide, patch_data):
     :param patch_data:
     :return:
     """
-    mpp_x = 0.0
-    mpp_y = 0.0
-    try:
-        mpp_x = slide.properties[openslide.PROPERTY_NAME_MPP_X]
-        mpp_y = slide.properties[openslide.PROPERTY_NAME_MPP_Y]
-        slide_mpp = (float(mpp_x) + float(mpp_y)) / 2
-        # print('mpp_x', mpp_x)
-        # print('mpp_y', mpp_y)
-        # print('slide_mpp', slide_mpp)
-        mpp_x = round(float(mpp_x), 4)
-        mpp_y = round(float(mpp_y), 4)
-
-    except (KeyError, ValueError):
-        print('Slide property error')
-        exit(1)
-
-    image_width, image_height = slide.dimensions
+    # TODO:!
 
     # Ratio of nuclear material
-    percent_nuclear_material = float((patch_data['patch_polygon_area'] / (PATCH_SIZE * PATCH_SIZE)) * 100)
+    percent_nuclear_material = float((patch_data['nucleus_area'] / (PATCH_SIZE * PATCH_SIZE)) * 100)
     # print("Ratio of nuclear material: ", percent_nuclear_material)
 
     patch_index = patch_data['patch_num']
@@ -449,9 +408,10 @@ def get_mongo_doc(slide, patch_data):
         "patch_min_x_pixel": patch_data['patch_minx'],
         "patch_min_y_pixel": patch_data['patch_miny'],
         "patch_size": PATCH_SIZE,
-        "patch_polygon_area": patch_data['patch_polygon_area'],
+        "patch_polygon_area": patch_polygon_area,
+        "nucleus_area": patch_data['nucleus_area'],
         "percent_nuclear_material": percent_nuclear_material,
-        # "patch_area_selected_percentage": 0.0,
+        # "patch_area_selected_percentage": 100.0,
         "grayscale_patch_mean": 0.0,
         "grayscale_patch_std": 0.0,
         "hematoxylin_patch_mean": 0.0,
@@ -536,8 +496,8 @@ def update_db(slide, patch_data, db_name):
         # Insert record in either case
         mycol.insert_one(mydoc)
 
-    except Exception as e:
-        print('Error: ', e)
+    except Exception as err:
+        print('update_db error: ', err)
         exit(1)
     # print('mydoc', json.dumps(mydoc, indent=4, sort_keys=True))
 
@@ -569,22 +529,6 @@ def calculate(tile_data):
     elapsed_time = time.time() - start_time
     print('Runtime calculate: ')
     print(time.strftime("%H:%M:%S", time.gmtime(elapsed_time)))
-
-
-def test_db():
-    try:
-        name = 'test'
-        client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
-        client.server_info()  # force connection, trigger error to be caught
-        db = client.quip_comp
-        collection_saved = db[name + '_features_td']  # name
-        patch_feature_data = collections.OrderedDict()
-        patch_feature_data['test'] = 'test'
-        patch_feature_data['datetime'] = datetime.now()
-        collection_saved.insert_one(patch_feature_data)
-    except Exception as e:
-        print('test_db: ', e)
-        exit(1)
 
 
 def rgb_to_stain(rgb_img_matrix, sizex, sizey):
@@ -754,17 +698,29 @@ def do_tiles(data, slide):
             miny = miny + data['tile_miny']
             maxx = minx + PATCH_SIZE
             maxy = miny + PATCH_SIZE
+
+            # Normalize
+            nminx = minx / image_width
+            nminy = miny / image_width
+            nmaxx = maxx / image_width
+            nmaxy = maxy / image_width
+
             # Bounding box representing patch
             print((minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy))
             # bbox = BoundingBox([(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)])
             bbox = Polygon([(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy), (minx, miny)])
+            bbox1 = Polygon([(nminx, nminy), (nmaxx, nminy), (nmaxx, nmaxy), (nminx, nmaxy), (nminx, nminy)])
+
             df2 = pandas.DataFrame()
-            patch_polygon_area = 0.0
+            nucleus_area = 0.0
             # Figure out which polygons (data rows) belong to which patch
             for index, row in df.iterrows():
                 xy = row['Polygon']
                 polygon_shape = string_to_polygon(xy, data['image_width'], data['image_height'], False)
                 polygon_shape = polygon_shape.buffer(0.0)  # Using a zero-width buffer cleans up many topology problems
+                # polygon_shape1 = string_to_polygon(xy, data['image_width'], data['image_height'], True)
+                # polygon_shape1 = polygon_shape1.buffer(0.0)
+
                 # print('polygon_shape', polygon_shape)
 
                 # Accumulate information
@@ -772,21 +728,44 @@ def do_tiles(data, slide):
                     df2 = df2.append(row)
                     if polygon_shape.intersects(bbox):
                         try:
-                            patch_polygon_area += polygon_shape.intersection(bbox).area
+                            nucleus_area += polygon_shape.intersection(bbox).area
+                            # nucleus_area += polygon_shape1.intersection(bbox1).area
+                            # print(nucleus_area * factor)
                         except Exception as err:
                             # except errors.TopologicalError as toperr:
                             print('Invalid geometry', err)
                     else:
-                        patch_polygon_area += polygon_shape.area
+                        nucleus_area += polygon_shape.area
+                        # nucleus_area += polygon_shape1.area
+                        # print(nucleus_area * factor)
 
-            update_db(slide, {'df': df2, 'patch_polygon_area': patch_polygon_area, 'patch_num': patch_num,
+            nucleus_area = nucleus_area / PATCH_SIZE
+            print('nucleus_area', nucleus_area)
+
+            update_db(slide, {'df': df2, 'nucleus_area': nucleus_area, 'patch_num': patch_num,
                               'patch_minx': minx, 'patch_miny': miny, 'tile_minx': data['tile_minx'],
                               'tile_miny': data['tile_miny'], 'image_width': data['image_width'],
-                              'image_height': data['image_height']}, 'test')
+                              'image_height': data['image_height']}, coll_name)
 
     elapsed_time = time.time() - start_time
     print('Runtime do_tiles: ')
     print(time.strftime("%H:%M:%S", time.gmtime(elapsed_time)))
+    # exit(0)  # testing one tile
+
+
+def get_image_metadata():
+    p = Path(os.path.join(SLIDE_DIR, (CASE_ID + '.svs')))
+    slide = openslide.OpenSlide(str(p))
+    mpp_x = slide.properties[openslide.PROPERTY_NAME_MPP_X]
+    mpp_y = slide.properties[openslide.PROPERTY_NAME_MPP_Y]
+    mpp_x = round(float(mpp_x), 4)
+    mpp_y = round(float(mpp_y), 4)
+    image_width, image_height = slide.dimensions
+    # image_width = slide.dimensions[0]
+    # image_height = slide.dimensions[1]
+    slide.close()
+
+    return mpp_x, mpp_y, image_width, image_height
 
 
 # constant variables
@@ -822,6 +801,10 @@ DATA_FILE_SUBFOLDERS = get_file_list(CASE_ID, 'config/data_file_path.list')
 assure_path_exists(SLIDE_DIR)
 copy_src_data(SLIDE_DIR)
 
+mpp_x, mpp_y, image_width, image_height = get_image_metadata()
+patch_polygon_area = PATCH_SIZE * PATCH_SIZE * mpp_x * mpp_y
+print('patch_polygon_area', patch_polygon_area)
+
 # Find what the pathologist circled as tumor.
 tumor_mark_list = get_tumor_markup(USER_NAME)
 # print('tumor_mark_list', len(tumor_mark_list))
@@ -842,7 +825,7 @@ csv_data = aggregate_data(jfile_objs, CSV_FILES)
 print('csv_data len: ', len(csv_data))
 
 # Connect to MongoDB
-db_name = 'test'
+coll_name = 'test1'
 client = {}
 try:
     client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
@@ -858,4 +841,3 @@ calculate(csv_data)
 client.close()
 
 exit(0)
-
