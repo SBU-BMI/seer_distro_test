@@ -1,5 +1,5 @@
 # Compare patch by patch, the patch level features from Bridge's implementation
-# with those from Tammys implementation [get the difference]
+# with those from Tammy's implementation [get the difference]
 import csv
 
 import numpy as np
