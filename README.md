@@ -14,12 +14,6 @@ conda env create -f environment.yml
 
 source activate feature-env
 
-pip install --upgrade pip
-
-conda install git
-
-pip install openslide-python
-
 ```
 Make sure you have folder `/data1/$USER/dataset` on a compute node where code will be executed.
 
