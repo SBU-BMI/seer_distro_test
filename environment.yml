@@ -10,8 +10,12 @@ dependencies:
   - pandas
   - shapely
   - pymongo
+  - bwa
   - openslide
+  - lxml
+  - libiconv
   - scikit-image
   - opencv
+  - cython
   - pip:
     - git+https://github.com/jrosebr1/imutils.git
