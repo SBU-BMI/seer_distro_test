@@ -10,10 +10,10 @@ from pymongo import MongoClient
 case_id = ''
 patch_size = '512'
 db_host = ''
-input_collection = 'test_features_td'
-# input_collection = 'test1_features_td'
-output_file = 'output.csv'
-# output_file = 'output1.csv'
+# input_collection = 'test_features_td'
+input_collection = 'test1_features_td'
+# output_file = 'output.csv'
+output_file = 'output1.csv'
 
 
 def is_number(s):
@@ -88,3 +88,6 @@ def get_data():
 
 
 get_data()
+
+exit(0)
+
