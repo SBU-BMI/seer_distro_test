@@ -1,5 +1,7 @@
+# Compute patch-level nuclear feature results.
+# Tumor-region only.
+# Change coll_name on line 830 to write to quip_comp.[your_collection_name]
 import argparse
-import collections
 import json
 import os
 import subprocess
@@ -463,7 +465,7 @@ def update_db(slide, patch_data, db_name):
     # Histology
     mydoc = patch_operations(patch, mydoc)
 
-    mycol = DB[db_name + '_features_td']  # name
+    mycol = DB[db_name]  # name
     # Connect to MongoDB
     # try:
     #     client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
@@ -825,7 +827,7 @@ csv_data = aggregate_data(jfile_objs, CSV_FILES)
 print('csv_data len: ', len(csv_data))
 
 # Connect to MongoDB
-coll_name = 'test1'
+coll_name = 'test2_features_td'
 client = {}
 try:
     client = mongodb_connect('mongodb://' + DB_HOST + ':27017')
